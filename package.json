@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "ftok": "^1.0.0",
-    "shm-typed-lru": "^0.0.3",
+    "shm-typed-lru": "^0.0.4",
     "xxhash-addon": "^1.3.0"
   },
   "scripts": {

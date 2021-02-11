@@ -9,8 +9,6 @@ const MAX_FAUX_HASH = 100000
 const INTER_PROC_DESCRIPTOR_WORDS = 8
 //
 
-const SUPER_HEADER = 256
-const MAX_LOCK_ATTEMPTS = 3
 
 const WORD_SIZE = 4
 const LONG_WORD_SIZE = 8
@@ -48,99 +46,91 @@ function default_hash(data) {
     return hh
 }
 
-
-function initXXHash(seed) {
-    g_app_seed = parseInt(seed);
-    g_hasher32 = new XXHash32(g_app_seed);
-}
-
-
-
-
 class ReaderWriter {
-    constructor(conf) {
-        let common_path = conf.master_of_ceremonies
-        this.shm_com_key = ftok(common_path)
-        //
-        this.asset_lock = false
+    constructor() {
+        this.reading = true
+        this.writing = true
+        this.asset_lock = 0
         this.com_buffer = []
         this.nprocs = 0
         this.proc_index = -1
         this.pid = process.pid
         this.resolver = null
+        //
+        process.on('SIGUSR2',() => {
+            this.asset_lock++
+            if ( this.asset_lock > this.nprocs ) this.asset_lock = this.nprocs
+        })
+
+        process.on('SIGPIPE',() => {
+            if ( this.asset_lock > 0 ) this.asset_lock--
+            if ( (this.asset_lock == 0) &&  (this.resolver != null) ) {
+                this.resolver(true)
+            }
+        })
     }
     
-    // ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
-    try_again(resolve,reject,count) {
-        count++
-        // try again at least once before stalling on a lock
-        setImmediate(() => { 
-            let result = shm.try_lock(this.shm_com_key)
-            if ( result === true ) {
-                resolve(true)
-            } else if ( result === false ) {
-                if ( count < MAX_LOCK_ATTEMPTS ) {
-                    this.try_again(resolve,count)
-                }
-            } else {
-                reject(result)
-            }
+    check_asset() {
+        return new Promise((resolve,reject) => {
+            if ( !(this.asset_lock) ) resolve(true)
+            this.resolver = resolve
         })
     }
 
-    async writing(count) {
-        if ( count === undefined ) count = 0
-        return new Promise((resolve,reject) => {
-            this.asset_lock = false
-            let result = shm.try_lock(this.shm_com_key)
-            if ( result === true ) {
-                this.asset_lock = true
-                resolve(true)
-            } else if ( result === false ) {
-                this.try_again(resolve,reject,count)
-            } else {
-                reject(result)
-            }
-        })
+    async writing() {
+        this.writing = await this.check_asset()
+        this.resolver = null
     }
 
     async reading() {
-        //
+        this.reading = await this.check_asset()
+        this.resolver = null
+    }
+
+    sig_lock_writing() {
+        if ( this.proc_index >= 0 && this.com_buffer.length ) {
+            let n = this.nprocs
+            for ( let i = 0; i < n; i++ ) {
+                let ii = NUM_INFO_FIELDS*n
+                let pid = this.com_buffer[ii + PID_INDEX]
+                process.kill(pid,'SIGUSR2')
+            }
+        }
+        return true
     }
 
     async lock_writing() {
-        if ( this.proc_index >= 0 && this.com_buffer.length ) {
-            if ( this.asset_lock ) return; // it is already locked
-            let result = shm.lock(this.shm_com_key)
-            if ( result !== true ) {
-                console.log(shm.get_last_mutex_reason(this.shm_com_key))
-            }
-        }
+        await this.writing()
+        this.sig_lock_writing()
+        await this.writing()
     }
 
     unlock_writing() {
         if ( this.proc_index >= 0 && this.com_buffer.length ) {
-            let result = shm.unlock(this.shm_com_key)
-            if ( result !== true ) {
-                console.log(shm.get_last_mutex_reason(this.shm_com_key))
+            let n = this.nprocs
+            for ( let i = 0; i < n; i++ ) {
+                let ii = NUM_INFO_FIELDS*n
+                let pid = this.com_buffer[ii + PID_INDEX]
+                if ( this.pid != pid ) {
+                    process.kill(pid,'SIGPIPE')
+                }
             }
         }
     }
     //
 }
 
-  // master_of_ceremonies -- a path
+  // master_of_cerimonies -- a path
   // proc_names -- the list of js file names that will be attaching to the regions.
-  // initializer -- true if master of ceremonies
-  //
-  // note: the initializer has to be called first before others.
-
+  // initializer -- true if master of ceromonies
 
 class ShmLRUCache extends ReaderWriter {
 
     constructor(conf) {
-        super(conf)
-        this.hasher = conf.hasher ? default_hash : initXXHash(conf.seed)
+        let common_path = conf.master_of_cerimonies
+        this.shm_com_key = ftok(common_path)
+        this.hashe = default_hash
+        //
         this.init_shm_communicator(conf)
         this.init_cach(conf)
     }
@@ -151,23 +141,21 @@ class ShmLRUCache extends ReaderWriter {
         let proc_count = conf.proc_names.length
         this.initalizer = conf.initializer
         if ( this.initializer ) {
-            this.com_buffer = shm.create(proc_count*sz + SUPER_HEADER,'Uint32Array',this.shm_com_key)
+            this.com_buffer = shm.create(proc_count*sz,'Uint32Array',this.shm_com_key)
         } else {
             this.com_buffer = shm.get(this.shm_com_key,'Uint32Array')
         }
         //
         let myname = path.basename(proces.argv[1],'.js')
-        this.proc_index = conf.proc_names.indexOf(myname)
+        this.proc_index = conf.proc_names.indexOf(myname) + 1
         this.nprocs = conf.proc_names.length
         let pid = this.pid
-        let p_offset = NUM_INFO_FIELDS*(this.proc_index) + SUPER_HEADER
+        let p_offset = NUM_INFO_FIELDS*(this.proc_index)
         this.com_buffer[p_offset + PID_INDEX] = pid
         this.com_buffer[p_offset + WRITE_FLAG_INDEX] = 0
         this.com_buffer[p_offset + INFO_INDEX_LRU] = 0  //??
         this.com_buffer[p_offset + INFO_INDEX_HH] = 0  //??
         //
-        //
-        shm.init_mutex(this.shm_com_key)        // put the mutex at the very start of the communicator region.
     }
 
     init_cache(conf) {
@@ -185,13 +173,11 @@ class ShmLRUCache extends ReaderWriter {
             this.hh_key = this.hh_bufer.key
             shm.initHopScotch(this.hh_key,this.lru_key,true,(cache_count*2))
             //
-            let p_offset = SUPER_HEADER  // even is the initializer is not at 0, all procs can read from zero
-            this.com_buffer[p_offset + INFO_INDEX_LRU] = this.lru_key
-            this.com_buffer[p_offset + INFO_INDEX_HH] = this.hh_key
+            this.com_buffer[INFO_INDEX_LRU] = this.lru_key
+            this.com_buffer[INFO_INDEX_HH] = this.hh_key
         } else {
-            let p_offset = SUPER_HEADER
-            this.lru_key = this.com_buffer[p_offset + INFO_INDEX_LRU]
-            this.hh_key = this.com_buffer[p_offset + INFO_INDEX_HH]
+            this.lru_key = this.com_buffer[INFO_INDEX_LRU]
+            this.hh_key = this.com_buffer[INFO_INDEX_HH]
             //
             this.lru_buffer = shm.get(lru_key); //
             let sz = this.count*(this.record_size + LRU_HEADER)
@@ -215,18 +201,17 @@ class ShmLRUCache extends ReaderWriter {
 		let hash = parseInt(pair[0])
 		let index = parseInt(pair[1])
         //
-        this.lock_asset()
+        lock_writing()
         shm.set(this.lru_key,value,hash,index)
-        this.unlock_asset()
+        unlock_writing()
     }
 
     async get(hash_augmented) {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])
-        this.lock_asset()
+        await this.reading()
         let value = shm.get_el_hash(this.lru_key,hash,index)
-        this.unlock_asset()
         return(value)
     }
 
@@ -234,14 +219,8 @@ class ShmLRUCache extends ReaderWriter {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])
-        this.lock_asset()
-        let result = shm.del_key(this.lru_key,hash,index)
-        this.unlock_asset()
-        return(result)
-    }
-
-    async delete(hash_augmented) {
-        this.del(hash_augmented)
+        await this.writing()
+        return(shm.del_key(this.lru_key,hash,index))
     }
 
 }

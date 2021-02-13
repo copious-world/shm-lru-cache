@@ -1,7 +1,7 @@
 const shm = require('shm-typed-lru')
 const { XXHash32 } = require('xxhash-addon')
 const ftok = require('ftok')
-const path = rquire('path')
+const path = require('path')
 
 const MAX_EVICTS = 10
 const MIN_DELTA = 1000*60*60   // millisecs
@@ -40,27 +40,36 @@ var g_hasher32 = null
 
 function default_hash(data) {
     if ( !(g_hasher32) ) return(0)
-    hasher32.update(data)
-    let h = hasher32.digest()
+    g_hasher32.update(data)
+    let h = g_hasher32.digest()
     let hh = h.readUInt32BE(0)
-    hasher32.reset()
+    g_hasher32.reset()
     //
     return hh
 }
 
 
-function initXXHash(seed) {
-    g_app_seed = parseInt(seed);
+function init_default(seed) {
+    g_app_seed = parseInt(seed,16);
     g_hasher32 = new XXHash32(g_app_seed);
+    return default_hash
 }
 
 
 
 
 class ReaderWriter {
+
+    //
     constructor(conf) {
         let common_path = conf.master_of_ceremonies
         this.shm_com_key = ftok(common_path)
+        if ( this.shm_com_key < 0 ) {
+            common_path = __dirname
+            console.log(common_path)
+            this.shm_com_key = ftok(common_path)
+
+        }
         //
         this.asset_lock = false
         this.com_buffer = []
@@ -88,7 +97,7 @@ class ReaderWriter {
         })
     }
 
-    async writing(count) {
+    async access(count) {
         if ( count === undefined ) count = 0
         return new Promise((resolve,reject) => {
             this.asset_lock = false
@@ -104,11 +113,7 @@ class ReaderWriter {
         })
     }
 
-    async reading() {
-        //
-    }
-
-    async lock_writing() {
+    async lock_asset() {
         if ( this.proc_index >= 0 && this.com_buffer.length ) {
             if ( this.asset_lock ) return; // it is already locked
             let result = shm.lock(this.shm_com_key)
@@ -118,7 +123,7 @@ class ReaderWriter {
         }
     }
 
-    unlock_writing() {
+    unlock_asset() {
         if ( this.proc_index >= 0 && this.com_buffer.length ) {
             let result = shm.unlock(this.shm_com_key)
             if ( result !== true ) {
@@ -140,23 +145,31 @@ class ShmLRUCache extends ReaderWriter {
 
     constructor(conf) {
         super(conf)
-        this.hasher = conf.hasher ? default_hash : initXXHash(conf.seed)
+        try {
+            this.hasher = conf.hasher ? (() =>{ hasher = require(conf.hasher); return(hasher.init(conf.seed)); })()
+                                      : (() => {
+                                            return(init_default(conf.seed))
+                                        })()
+        } catch (e) {
+            this.hasher = init_default(conf.seed)
+        }
+                             
         this.init_shm_communicator(conf)
-        this.init_cach(conf)
+        this.init_cache(conf)
     }
     
     init_shm_communicator(conf) {
         //
         let sz = INTER_PROC_DESCRIPTOR_WORDS
-        let proc_count = conf.proc_names.length
-        this.initalizer = conf.initializer
+        let proc_count = conf.proc_names ? conf.proc_names.length : 0
+        this.initializer = ((proc_count > 0) && (conf.master_of_ceremonies.indexOf(conf.module_path) >= 0))
         if ( this.initializer ) {
             this.com_buffer = shm.create(proc_count*sz + SUPER_HEADER,'Uint32Array',this.shm_com_key)
         } else {
             this.com_buffer = shm.get(this.shm_com_key,'Uint32Array')
         }
         //
-        let myname = path.basename(proces.argv[1],'.js')
+        let myname = conf.module_path
         this.proc_index = conf.proc_names.indexOf(myname)
         this.nprocs = conf.proc_names.length
         let pid = this.pid
@@ -175,7 +188,7 @@ class ShmLRUCache extends ReaderWriter {
         this.count = conf.el_count
         //
         if ( this.initializer ) {
-            let sz = this.count*(this.record_size + LRU_HEADER)
+            let sz = ((this.count*this.record_size) + LRU_HEADER)
             this.lru_buffer =  shm.create(sz);
             this.lru_key = this.lru_buffer.key
             this.count = shm.initLRU(this.lru_buffer.key,this.record_size,sz,true)
@@ -183,7 +196,7 @@ class ShmLRUCache extends ReaderWriter {
             sz = (2*this.count*(WORD_SIZE + LONG_WORD_SIZE) + HH_HEADER_SIZE)
             this.hh_bufer = shm.create(sz); 
             this.hh_key = this.hh_bufer.key
-            shm.initHopScotch(this.hh_key,this.lru_key,true,(cache_count*2))
+            shm.initHopScotch(this.hh_key,this.lru_key,true,this.count)
             //
             let p_offset = SUPER_HEADER  // even is the initializer is not at 0, all procs can read from zero
             this.com_buffer[p_offset + INFO_INDEX_LRU] = this.lru_key
@@ -242,6 +255,14 @@ class ShmLRUCache extends ReaderWriter {
 
     async delete(hash_augmented) {
         this.del(hash_augmented)
+    }
+
+    disconnect(opt) {
+        if ( opt === true || ( (typeof opt === 'object') && ( opt.save_backup = true ) )) {
+            // save buffers....
+        }
+        shm.detachAll()
+        return(true)
     }
 
 }

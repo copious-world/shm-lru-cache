@@ -9,7 +9,7 @@ const MAX_FAUX_HASH = 100000
 const INTER_PROC_DESCRIPTOR_WORDS = 8
 //
 
-const SUPER_HEADER = 256
+const SUPER_HEADER = 128
 const MAX_LOCK_ATTEMPTS = 3
 
 const WORD_SIZE = 4
@@ -23,7 +23,7 @@ const INFO_INDEX_LRU = 2
 const INFO_INDEX_HH = 3
 const NUM_INFO_FIELDS = 4
 
-const LRU_HEADER = 64
+const LRU_HEADER = 128
 
 function check_buffer_type(buf) {
     return true
@@ -40,7 +40,8 @@ var g_hasher32 = null
 
 function default_hash(data) {
     if ( !(g_hasher32) ) return(0)
-    g_hasher32.update(data)
+    let b = Buffer.from(data)
+    g_hasher32.update(b)
     let h = g_hasher32.digest()
     let hh = h.readUInt32BE(0)
     g_hasher32.reset()
@@ -113,7 +114,7 @@ class ReaderWriter {
         })
     }
 
-    async lock_asset() {
+    lock_asset() {
         if ( this.proc_index >= 0 && this.com_buffer.length ) {
             if ( this.asset_lock ) return; // it is already locked
             let result = shm.lock(this.shm_com_key)
@@ -180,7 +181,10 @@ class ShmLRUCache extends ReaderWriter {
         this.com_buffer[p_offset + INFO_INDEX_HH] = 0  //??
         //
         //
-        shm.init_mutex(this.shm_com_key)        // put the mutex at the very start of the communicator region.
+        let result = shm.init_mutex(this.shm_com_key,this.initializer)        // put the mutex at the very start of the communicator region.
+        if ( result !== true ) {
+            // tell your soroows.
+        }
     }
 
     init_cache(conf) {
@@ -218,9 +222,12 @@ class ShmLRUCache extends ReaderWriter {
     // ---- ---- ---- ---- ---- ---- ---- ---- ----
 
     hash(value) {
-        return( this.hasher(value) )
+        let hh = this.hasher(value)
+        let top = hh % this.count
+        let augmented_hash_token = top + '-' + hh
+        return( augmented_hash_token )
     }
-    
+
     async set(hash_augmented,value) {
         if ( !(value.length) ) return(-1)
         if ( value.length > this.record_size ) return(-1)
@@ -229,11 +236,14 @@ class ShmLRUCache extends ReaderWriter {
 		let index = parseInt(pair[1])
         //
         this.lock_asset()
-        shm.set(this.lru_key,value,hash,index)
+        let status = shm.set(this.lru_key,value,hash,index)
+        if ( (status === false) || (status < 0) ) {
+            // error condition...
+        }
         this.unlock_asset()
     }
 
-    async get(hash_augmented) {
+    get(hash_augmented) {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])

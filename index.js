@@ -229,8 +229,12 @@ class ShmLRUCache extends ReaderWriter {
     }
 
     async set(hash_augmented,value) {
-        if ( !(value.length) ) return(-1)
-        if ( value.length > this.record_size ) return(-1)
+        if ( typeof value === 'string' ) {
+            if ( !(value.length) ) return(-1)
+            if ( value.length > this.record_size ) return(-1)    
+        } else {
+            value = (value).toString(16)
+        }
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
 		let index = parseInt(pair[1])

@@ -9,7 +9,7 @@ const MAX_FAUX_HASH = 100000
 const INTER_PROC_DESCRIPTOR_WORDS = 8
 //
 
-const SUPER_HEADER = 128
+const SUPER_HEADER = 256
 const MAX_LOCK_ATTEMPTS = 3
 
 const WORD_SIZE = 4
@@ -23,7 +23,7 @@ const INFO_INDEX_LRU = 2
 const INFO_INDEX_HH = 3
 const NUM_INFO_FIELDS = 4
 
-const LRU_HEADER = 128
+const LRU_HEADER = 64
 
 function check_buffer_type(buf) {
     return true
@@ -37,6 +37,7 @@ function isArray(arr) {
 
 var g_app_seed = 0
 var g_hasher32 = null
+
 
 function default_hash(data) {
     if ( !(g_hasher32) ) return(0)
@@ -164,6 +165,7 @@ class ShmLRUCache extends ReaderWriter {
         let sz = INTER_PROC_DESCRIPTOR_WORDS
         let proc_count = conf.proc_names ? conf.proc_names.length : 0
         this.initializer = ((proc_count > 0) && (conf.master_of_ceremonies.indexOf(conf.module_path) >= 0))
+    console.log("init_shm_communicator:: initializer: " + this.initializer)
         if ( this.initializer ) {
             this.com_buffer = shm.create(proc_count*sz + SUPER_HEADER,'Uint32Array',this.shm_com_key)
         } else {
@@ -181,10 +183,7 @@ class ShmLRUCache extends ReaderWriter {
         this.com_buffer[p_offset + INFO_INDEX_HH] = 0  //??
         //
         //
-        let result = shm.init_mutex(this.shm_com_key,this.initializer)        // put the mutex at the very start of the communicator region.
-        if ( result !== true ) {
-            // tell your soroows.
-        }
+        shm.init_mutex(this.shm_com_key,this.initializer)        // put the mutex at the very start of the communicator region.
     }
 
     init_cache(conf) {
@@ -210,11 +209,11 @@ class ShmLRUCache extends ReaderWriter {
             this.lru_key = this.com_buffer[p_offset + INFO_INDEX_LRU]
             this.hh_key = this.com_buffer[p_offset + INFO_INDEX_HH]
             //
-            this.lru_buffer = shm.get(lru_key); //
+            this.lru_buffer = shm.get(this.lru_key); //
             let sz = this.count*(this.record_size + LRU_HEADER)
-            this.count = shm.initLRU(lru_key,this.record_size,sz,false)
-            this.hh_bufer = shm.get(hh_key);
-            shm.initHopScotch(hh_key,lru_key,false,this.count)
+            this.count = shm.initLRU(this.lru_key,this.record_size,sz,false)
+            this.hh_bufer = shm.get(this.hh_key);
+            shm.initHopScotch(this.hh_key,this.lru_key,false,this.count)
             //
         }
     }
@@ -236,8 +235,8 @@ class ShmLRUCache extends ReaderWriter {
             value = (value).toString(16)
         }
         let pair = hash_augmented.split('-')
-		let hash = parseInt(pair[0])
-		let index = parseInt(pair[1])
+        let hash = parseInt(pair[0])
+        let index = parseInt(pair[1])
         //
         this.lock_asset()
         let status = shm.set(this.lru_key,value,hash,index)
@@ -257,7 +256,7 @@ class ShmLRUCache extends ReaderWriter {
         return(value)
     }
 
-    async del(hash_augmented) {
+    del(hash_augmented) {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])

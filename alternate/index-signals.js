@@ -201,9 +201,9 @@ class ShmLRUCache extends ReaderWriter {
 		let hash = parseInt(pair[0])
 		let index = parseInt(pair[1])
         //
-        lock_writing()
+        this.lock_writing()
         shm.set(this.lru_key,value,hash,index)
-        unlock_writing()
+        this.unlock_writing()
     }
 
     async get(hash_augmented) {

@@ -1,6 +1,6 @@
 {
   "name": "shm-lru-cache",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A shared memory cache. This is a wrapper for shm-type-lru that provides a familiar cache interface.",
   "main": "index.js",
   "directories": {

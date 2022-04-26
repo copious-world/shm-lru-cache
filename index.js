@@ -1,7 +1,7 @@
 const shm = require('shm-typed-lru')
 const { XXHash32 } = require('xxhash-addon')
 const ftok = require('ftok')
-const path = require('path')
+
 
 const MAX_EVICTS = 10
 const MIN_DELTA = 1000*60*60   // millisecs
@@ -25,29 +25,28 @@ const NUM_INFO_FIELDS = 4
 
 const LRU_HEADER = 64
 
-function check_buffer_type(buf) {
-    return true
-}
-
-function isArray(arr) {
-    if ( (typeof arr === 'object' && arr.length )) return(true)
-    return(false)
-}
-
 
 var g_app_seed = 0
 var g_hasher32 = null
 
+var g_buf_enc = new TextEncoder()
 
 function default_hash(data) {
     if ( !(g_hasher32) ) return(0)
-    let b = Buffer.from(data)
-    g_hasher32.update(b)
-    let h = g_hasher32.digest()
-    let hh = h.readUInt32BE(0)
-    g_hasher32.reset()
-    //
-    return hh
+    try {
+        if ( typeof data === "string" ) {
+            let buf = g_buf_enc.encode(data)
+            data = buf
+        }
+        g_hasher32.update(data)
+        let h = g_hasher32.digest()
+        let hh = h.readUInt32BE(0)
+        g_hasher32.reset()
+        return hh            
+    } catch (e) {
+        console.log(e)
+    }
+    return 0
 }
 
 
@@ -68,9 +67,8 @@ class ReaderWriter {
         this.shm_com_key = ftok(common_path)
         if ( this.shm_com_key < 0 ) {
             common_path = __dirname
-            console.log(common_path)
+            //console.log(common_path)
             this.shm_com_key = ftok(common_path)
-
         }
         //
         this.asset_lock = false
@@ -115,9 +113,10 @@ class ReaderWriter {
         })
     }
 
-    lock_asset() {
+    async lock_asset() {
         if ( this.proc_index >= 0 && this.com_buffer.length ) {
             if ( this.asset_lock ) return; // it is already locked
+            //
             let result = shm.lock(this.shm_com_key)
             if ( result !== true ) {
                 console.log(shm.get_last_mutex_reason(this.shm_com_key))
@@ -165,7 +164,6 @@ class ShmLRUCache extends ReaderWriter {
         let sz = INTER_PROC_DESCRIPTOR_WORDS
         let proc_count = conf.proc_names ? conf.proc_names.length : 0
         this.initializer = ((proc_count > 0) && (conf.master_of_ceremonies.indexOf(conf.module_path) >= 0))
-    console.log("init_shm_communicator:: initializer: " + this.initializer)
         if ( this.initializer ) {
             this.com_buffer = shm.create(proc_count*sz + SUPER_HEADER,'Uint32Array',this.shm_com_key)
         } else {
@@ -186,6 +184,7 @@ class ShmLRUCache extends ReaderWriter {
         shm.init_mutex(this.shm_com_key,this.initializer)        // put the mutex at the very start of the communicator region.
     }
 
+    // ----
     init_cache(conf) {
         this.record_size = conf.record_size
         this.count = conf.el_count
@@ -194,7 +193,7 @@ class ShmLRUCache extends ReaderWriter {
             let sz = ((this.count*this.record_size) + LRU_HEADER)
             this.lru_buffer =  shm.create(sz);
             this.lru_key = this.lru_buffer.key
-            this.count = shm.initLRU(this.lru_buffer.key,this.record_size,sz,true)
+            this.count = shm.initLRU(this.lru_key,this.record_size,sz,true)
             //
             sz = (2*this.count*(WORD_SIZE + LONG_WORD_SIZE) + HH_HEADER_SIZE)
             this.hh_bufer = shm.create(sz); 
@@ -235,8 +234,8 @@ class ShmLRUCache extends ReaderWriter {
             value = (value).toString(16)
         }
         let pair = hash_augmented.split('-')
-        let hash = parseInt(pair[0])
-        let index = parseInt(pair[1])
+		let hash = parseInt(pair[0])
+		let index = parseInt(pair[1])
         //
         this.lock_asset()
         let status = shm.set(this.lru_key,value,hash,index)
@@ -246,7 +245,7 @@ class ShmLRUCache extends ReaderWriter {
         this.unlock_asset()
     }
 
-    get(hash_augmented) {
+    async get(hash_augmented) {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])
@@ -256,7 +255,7 @@ class ShmLRUCache extends ReaderWriter {
         return(value)
     }
 
-    del(hash_augmented) {
+    async del(hash_augmented) {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])

@@ -7,6 +7,7 @@ const MAX_EVICTS = 10
 const MIN_DELTA = 1000*60*60   // millisecs
 const MAX_FAUX_HASH = 100000
 const INTER_PROC_DESCRIPTOR_WORDS = 8
+const DEFAULT_RESIDENCY_TIMEOUT = MIN_DELTA
 //
 
 const SUPER_HEADER = 256
@@ -146,6 +147,7 @@ class ShmLRUCache extends ReaderWriter {
 
     constructor(conf) {
         super(conf)
+        this.conf = conf
         try {
             this.hasher = conf.hasher ? (() =>{ hasher = require(conf.hasher); return(hasher.init(conf.seed)); })()
                                       : (() => {
@@ -154,7 +156,9 @@ class ShmLRUCache extends ReaderWriter {
         } catch (e) {
             this.hasher = init_default(conf.seed)
         }
-                             
+        //
+        this.eviction_interval = null
+        //       
         this.init_shm_communicator(conf)
         this.init_cache(conf)
     }
@@ -180,7 +184,6 @@ class ShmLRUCache extends ReaderWriter {
         this.com_buffer[p_offset + INFO_INDEX_LRU] = 0  //??
         this.com_buffer[p_offset + INFO_INDEX_HH] = 0  //??
         //
-        //
         shm.init_mutex(this.shm_com_key,this.initializer)        // put the mutex at the very start of the communicator region.
     }
 
@@ -203,6 +206,9 @@ class ShmLRUCache extends ReaderWriter {
             let p_offset = SUPER_HEADER  // even is the initializer is not at 0, all procs can read from zero
             this.com_buffer[p_offset + INFO_INDEX_LRU] = this.lru_key
             this.com_buffer[p_offset + INFO_INDEX_HH] = this.hh_key
+            if ( conf.evictions_timeout ) {
+                this.setup_eviction_proc(conf)
+            }
         } else {
             let p_offset = SUPER_HEADER
             this.lru_key = this.com_buffer[p_offset + INFO_INDEX_LRU]
@@ -241,6 +247,19 @@ class ShmLRUCache extends ReaderWriter {
         let status = shm.set(this.lru_key,value,hash,index)
         if ( (status === false) || (status < 0) ) {
             // error condition...
+            let time_shift = 0
+            let reduced_max = 20
+            let status_retry = 1
+            while ( reduced_max > 0 ) {
+                let [t_shift,rmax] = this.immediate_evictions(time_shift,reduced_max)
+                status_retry = shm.set(this.lru_key,value,hash,index)
+                if ( status_retry > 0 ) break;
+                time_shift = t_shift
+                reduced_max = rmax
+            }
+            if (  (status_retry === false) || (status_retry < 0) ) {
+                throw new Error("evictions fail to regain space")
+            }
         }
         this.unlock_asset()
     }
@@ -269,12 +288,62 @@ class ShmLRUCache extends ReaderWriter {
         this.del(hash_augmented)
     }
 
+
+    // ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+
+    setup_eviction_proc(conf) {
+        let eviction_timeout = (conf.sessions_length !== undefined) ? conf.sessions_length : DEFAULT_RESIDENCY_TIMEOUT
+        let prev_milisec = (conf.aged_out_secs !== undefined) ? (conf.aged_out_secs*1000) : DEFAULT_RESIDENCY_TIMEOUT
+        let cutoff = Date.now() - prev_milisec
+        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
+        let self = this
+        this.eviction_interval = setInterval(() => {
+            let evict_list = shm.run_lru_eviction(this.lru_key,cutoff,max_evict)
+            self.app_handle_evicted(evict_list)
+        },eviction_timeout)
+    }
+
+    // ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+
+    immediate_evictions(age_reduction,e_max) {
+        let conf = this.conf
+        let prev_milisec = (conf.aged_out_secs !== undefined) ? (conf.aged_out_secs*1000) : DEFAULT_RESIDENCY_TIMEOUT
+        if ( (typeof age_reduction === 'number') && (age_reduction < prev_milisec)) {
+            prev_milisec = age_reduction
+        }
+        let cutoff = Date.now() - prev_milisec
+        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
+        if ( (e_max !== undefined) && (e_max < max_evict) ) {
+            max_evict = e_max
+        }
+        let evict_list = shm.run_lru_eviction(this.lru_key,cutoff,max_evict)
+        if ( evict_list.length ) {
+            let self = this
+            setTimeout(() => {
+                self.app_handle_evicted(evict_list)
+            },250)    
+        }
+        return [(prev_milisec - 100),(max_evict - 2)]
+    }
+
+    // ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+
     disconnect(opt) {
+        if ( this.eviction_interval !== null ) {
+            clearInterval(this.eviction_interval)
+        }
         if ( opt === true || ( (typeof opt === 'object') && ( opt.save_backup = true ) )) {
             // save buffers....
         }
         shm.detachAll()
         return(true)
+    }
+
+    // ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+
+    /// handle_evicted(evict_list)
+    app_handle_evicted(evict_list) {
+        // app may decide to forward these elsewhere are send shutdown messages, etc.
     }
 
 }

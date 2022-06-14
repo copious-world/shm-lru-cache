@@ -114,7 +114,7 @@ class ReaderWriter {
         })
     }
 
-    async lock_asset() {
+    lock_asset() {
         if ( this.proc_index >= 0 && this.com_buffer.length ) {
             if ( this.asset_lock ) return; // it is already locked
             //
@@ -158,9 +158,11 @@ class ShmLRUCache extends ReaderWriter {
         }
         //
         this.eviction_interval = null
-        //       
-        this.init_shm_communicator(conf)
-        this.init_cache(conf)
+        //
+        if ( typeof conf._test_use_no_memory === undefined ) {
+            this.init_shm_communicator(conf)
+            this.init_cache(conf)    
+        }
     }
     
     init_shm_communicator(conf) {
@@ -243,6 +245,7 @@ class ShmLRUCache extends ReaderWriter {
 		let hash = parseInt(pair[0])
 		let index = parseInt(pair[1])
         //
+        if ( this.proc_index < 0 ) return  // guard against bad initialization and test cases
         this.lock_asset()
         let status = shm.set(this.lru_key,value,hash,index)
         if ( (status === false) || (status < 0) ) {
@@ -268,6 +271,7 @@ class ShmLRUCache extends ReaderWriter {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])
+        if ( this.proc_index < 0 ) return(false)  // guard against bad initialization and test cases
         this.lock_asset()
         let value = shm.get_el_hash(this.lru_key,hash,index)
         this.unlock_asset()
@@ -278,6 +282,7 @@ class ShmLRUCache extends ReaderWriter {
         let pair = hash_augmented.split('-')
 		let hash = parseInt(pair[0])
         let index = parseInt(pair[1])
+        if ( this.proc_index < 0 ) return(false)  // guard against bad initialization and test cases
         this.lock_asset()
         let result = shm.del_key(this.lru_key,hash,index)
         this.unlock_asset()
@@ -285,7 +290,7 @@ class ShmLRUCache extends ReaderWriter {
     }
 
     async delete(hash_augmented) {
-        this.del(hash_augmented)
+        return this.del(hash_augmented)
     }
 
 
@@ -297,10 +302,12 @@ class ShmLRUCache extends ReaderWriter {
         let cutoff = Date.now() - prev_milisec
         let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
         let self = this
+        if ( this.proc_index < 0 ) return(false)  // guard against bad initialization and test cases
         this.eviction_interval = setInterval(() => {
             let evict_list = shm.run_lru_eviction(this.lru_key,cutoff,max_evict)
             self.app_handle_evicted(evict_list)
         },eviction_timeout)
+        return true
     }
 
     // ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
@@ -316,6 +323,8 @@ class ShmLRUCache extends ReaderWriter {
         if ( (e_max !== undefined) && (e_max < max_evict) ) {
             max_evict = e_max
         }
+        if ( this.proc_index < 0 ) return(0)  // guard against bad initialization and test cases
+        //
         let evict_list = shm.run_lru_eviction(this.lru_key,cutoff,max_evict)
         if ( evict_list.length ) {
             let self = this

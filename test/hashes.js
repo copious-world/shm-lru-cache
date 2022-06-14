@@ -24,11 +24,6 @@ function init_default(seed) {
 }
 
 
-init_default(3456);
-let b = Buffer.from("this is a test")
-let hh = default_hash(b)
-console.log(hh)
-
 
 function test_method_sim(value) {
     let b = Buffer.from(value)
@@ -38,13 +33,24 @@ function test_method_sim(value) {
     return( augmented_hash_token )    
 }
 
-init_default(1234);
-b = Buffer.from("this is a test")
-hh = default_hash(b)
-console.log(hh)
+
+function run_test() {
+    init_default(3456);
+    let b = Buffer.from("this is a test")
+    let hh = default_hash(b)
+    console.log(hh)
+        
+
+    init_default(1234);
+    b = Buffer.from("this is a test")
+    hh = default_hash(b)
+    console.log(hh)
+
+    console.log(test_method_sim('jo@blo.com'))
+    console.log(test_method_sim('jane@do.com'))
+    console.log(test_method_sim('jo@blo.com'))
+    console.log(test_method_sim('jane@go.com'))    
+}
 
 
-console.log(test_method_sim('jo@blo.com'))
-console.log(test_method_sim('jane@do.com'))
-console.log(test_method_sim('jo@blo.com'))
-console.log(test_method_sim('jane@go.com'))
+module.exports = run_test

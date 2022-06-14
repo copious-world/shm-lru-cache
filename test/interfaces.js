@@ -52,47 +52,55 @@ class LRUManager {
 }
 
 
-let conf = 
-{
-    "cache" : {
-        "master_of_ceremonies" : "/Users/richardalbertleddy/Documents/GitHub/copious.world/src/copious-transitions/captcha",
-        "seed" :  "23E5FA9017",
-        "proc_names" : [ "captcha", "uploader" ],
-        "record_size" : 150,
-        "el_count" : 50000
-    }
+function run_test() {
+
+  let conf = 
+  {
+      "cache" : {
+          "master_of_ceremonies" : "/Users/richardalbertleddy/Documents/GitHub/copious.world/src/copious-transitions/captcha",
+          "seed" :  "23E5FA9017",
+          "proc_names" : [ "captcha", "uploader" ],
+          "record_size" : 150,
+          "el_count" : 50000
+      }
+  }
+
+
+  let lru_m = new LRUManager(conf)
+
+  let emails = {
+      "jj@pp.com" : {
+          "sing" : "bing",
+          "subject" : "poor little butter cup"
+      },
+      "bcup@dcup.com" : {
+          "sing" : "oopsie",
+          "subject" : "green little men"
+      },
+      "green@dude.com" : {
+          "sing" : "woo-hoo",
+          "subject" : "green little ladies"
+      },
+      "green@girl.com" : {
+          "sing" : "boo-boo",
+          "subject" : "little broken cups"
+      }
+  }
+
+  for ( let email in emails ) {
+      let value = emails[email]
+      let hh = lru_m.set(email,value)
+      console.log(`${hh}  ${email}`)
+  }
+
+
+  for ( let email in emails ) {
+      let value = lru_m.get(email)
+      console.log(`${email}  ${value}`)
+  }
+
+
 }
-  
-let lru_m = new LRUManager(conf)
-
-let emails = {
-    "jj@pp.com" : {
-        "sing" : "bing",
-        "subject" : "poor little butter cup"
-    },
-    "bcup@dcup.com" : {
-        "sing" : "oopsie",
-        "subject" : "green little men"
-    },
-    "green@dude.com" : {
-        "sing" : "woo-hoo",
-        "subject" : "green little ladies"
-    },
-    "green@girl.com" : {
-        "sing" : "boo-boo",
-        "subject" : "little broken cups"
-    }
-}
-
-for ( let email in emails ) {
-    let value = emails[email]
-    let hh = lru_m.set(email,value)
-    console.log(`${hh}  ${email}`)
-}
 
 
-for ( let email in emails ) {
-    let value = lru_m.get(email)
-    console.log(`${email}  ${value}`)
-}
-
+module.exports = run_test

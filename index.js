@@ -65,6 +65,9 @@ class ReaderWriter {
     //
     constructor(conf) {
         let common_path = conf.master_of_ceremonies
+        if ( common_path === undefined ) {
+            common_path = conf.token_path
+        }
         this.shm_com_key = ftok(common_path)
         if ( this.shm_com_key < 0 ) {
             common_path = __dirname
@@ -159,26 +162,46 @@ class ShmLRUCache extends ReaderWriter {
         //
         this.eviction_interval = null
         //
-        if ( typeof conf._test_use_no_memory === undefined ) {
+        if ( typeof conf._test_use_no_memory === "undefined" ) {
             this.init_shm_communicator(conf)
             this.init_cache(conf)    
         }
     }
     
+    
     init_shm_communicator(conf) {
         //
         let sz = INTER_PROC_DESCRIPTOR_WORDS
         let proc_count = conf.proc_names ? conf.proc_names.length : 0
-        this.initializer = ((proc_count > 0) && (conf.master_of_ceremonies.indexOf(conf.module_path) >= 0))
+        //
+        let mpath_match = -1
+        if ( (typeof conf.token_path !== "undefined") ) {
+            this.initializer = conf.am_initializer
+            if ( this.initializer === undefined ) this.initializer = false
+            proc_count = Math.max(proc_count,2)     // expect one attaching process other than initializer (May be just logging)
+        } else {
+            mpath_match = conf.master_of_ceremonies.indexOf(conf.module_path)
+            this.initializer = ((proc_count > 0) && (mpath_match >= 0))
+        }
+        //
         if ( this.initializer ) {
             this.com_buffer = shm.create(proc_count*sz + SUPER_HEADER,'Uint32Array',this.shm_com_key)
         } else {
             this.com_buffer = shm.get(this.shm_com_key,'Uint32Array')
+            if ( (mpath_match === -1) && (this.com_buffer === null) ) {
+                console.dir(conf)
+                console.log("module_path DOES NOT match with master_of_ceremonies OR master_of_ceremonies not yet initialized")
+                throw(new Error("possible configuration error"))
+            }
         }
         //
-        let myname = conf.module_path
-        this.proc_index = conf.proc_names.indexOf(myname)
-        this.nprocs = conf.proc_names.length
+        let myname = (conf.module_path !== undefined) ? conf.module_path : conf.token_path
+        if ( conf.proc_names !== undefined ) {
+            this.proc_index = conf.proc_names.indexOf(myname)
+            this.nprocs = conf.proc_names.length    
+        } else {
+            this.proc_index = this.initializer ? 0 : 1
+        }
         let pid = this.pid
         let p_offset = NUM_INFO_FIELDS*(this.proc_index) + SUPER_HEADER
         this.com_buffer[p_offset + PID_INDEX] = pid
@@ -188,6 +211,7 @@ class ShmLRUCache extends ReaderWriter {
         //
         shm.init_mutex(this.shm_com_key,this.initializer)        // put the mutex at the very start of the communicator region.
     }
+
 
     // ----
     init_cache(conf) {

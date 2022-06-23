@@ -1,6 +1,6 @@
 {
   "name": "shm-lru-cache",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A shared memory cache. This is a wrapper for shm-type-lru that provides a familiar cache interface.",
   "main": "index.js",
   "directories": {
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "ftok": "^1.0.0",
-    "shm-typed-lru": "^0.1.5",
+    "shm-typed-lru": "^0.1.7",
     "xxhash-addon": "^1.5.0"
   },
   "scripts": {

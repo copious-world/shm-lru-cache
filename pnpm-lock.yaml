@@ -2,12 +2,12 @@ lockfileVersion: 5.4
 
 specifiers:
   ftok: ^1.0.0
-  shm-typed-lru: ^0.1.4
+  shm-typed-lru: ^0.1.7
   xxhash-addon: ^1.5.0
 
 dependencies:
   ftok: 1.0.0
-  shm-typed-lru: 0.1.4
+  shm-typed-lru: 0.1.7
   xxhash-addon: 1.5.0
 
 packages:
@@ -20,8 +20,8 @@ packages:
     resolution: {integrity: sha512-UdAqHyFngu7TfQKsCBgAA6pWDkT8MAO7d0jyOecVhN5354xbLqdn8mV9Tat9gepAupm0bt2DbeaSC8vS52MuFA==}
     dev: false
 
-  /shm-typed-lru/0.1.4:
-    resolution: {integrity: sha512-HExrdtZk3JY+T3OvoIM8SbNLCzKYE8T4moIz733b5t0vL4XW8BihADtwUl3M4zp/OyMc0SDwX3/bgUUMeg0A8g==}
+  /shm-typed-lru/0.1.7:
+    resolution: {integrity: sha512-nLcSwbpK8oKazt49No+ystChcj3sL9B3PrOZwnMDC3ujrogx5k1Bj2exhwrLYClXgvMjc9J8pXSugs5076OZgw==}
     engines: {node: '>=4.0.0'}
     os: ['!win32']
     requiresBuild: true

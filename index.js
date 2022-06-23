@@ -403,6 +403,11 @@ class ShmLRUCache extends ReaderWriter {
         // app may decide to forward these elsewhere are send shutdown messages, etc.
     }
 
+
+    set_sigint_proc_stop(func) {
+        shm.set_sigint_proc_stop(func)
+    }
+
 }
 
 

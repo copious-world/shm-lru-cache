@@ -1,0 +1,36 @@
+lockfileVersion: 5.4
+
+specifiers:
+  ftok: ^1.0.0
+  shm-typed-lru: ^0.1.4
+  xxhash-addon: ^1.5.0
+
+dependencies:
+  ftok: 1.0.0
+  shm-typed-lru: 0.1.4
+  xxhash-addon: 1.5.0
+
+packages:
+
+  /ftok/1.0.0:
+    resolution: {integrity: sha512-hxrvQ3AZHbRy9VF0bp6968Ajuj5IoR4rxOVz18X79Gl2lvM4TIsDCGorvkmok3L3016DfvX4Oj50raQdXRuO/A==}
+    dev: false
+
+  /nan/2.16.0:
+    resolution: {integrity: sha512-UdAqHyFngu7TfQKsCBgAA6pWDkT8MAO7d0jyOecVhN5354xbLqdn8mV9Tat9gepAupm0bt2DbeaSC8vS52MuFA==}
+    dev: false
+
+  /shm-typed-lru/0.1.4:
+    resolution: {integrity: sha512-HExrdtZk3JY+T3OvoIM8SbNLCzKYE8T4moIz733b5t0vL4XW8BihADtwUl3M4zp/OyMc0SDwX3/bgUUMeg0A8g==}
+    engines: {node: '>=4.0.0'}
+    os: ['!win32']
+    requiresBuild: true
+    dependencies:
+      nan: 2.16.0
+    dev: false
+
+  /xxhash-addon/1.5.0:
+    resolution: {integrity: sha512-ZkfBZMrrpbyT8/uw7x+2voPBXO2oczajlGo11+OOO1YqGbk6DuF7erwirCUPvydN17lEjilu3VGDWWG4+fV45Q==}
+    engines: {node: '>=8.6.0 <9.0.0 || >=10.0.0'}
+    requiresBuild: true
+    dev: false

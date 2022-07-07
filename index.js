@@ -383,6 +383,33 @@ class ShmLRUCache extends ReaderWriter {
         return evict_list
     }
 
+
+    immediate_targeted_evictions(hash_augmented,age_reduction,e_max) {
+        let pair = hash_augmented.split('-')
+		let hash = parseInt(pair[0])
+        let index = parseInt(pair[1])
+        if ( this.proc_index < 0 ) return(false)  // guard against bad initialization and test cases
+        //
+        let conf = this.conf
+        let prev_milisec = (conf.aged_out_secs !== undefined) ? (conf.aged_out_secs*1000) : DEFAULT_RESIDENCY_TIMEOUT
+        if ( (typeof age_reduction === 'number') && (age_reduction < prev_milisec)) {
+            prev_milisec = age_reduction
+        }
+        let cutoff = Date.now() - prev_milisec
+        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
+        if ( (e_max !== undefined) && (e_max < max_evict) ) {
+            max_evict = e_max
+        }
+        if ( this.proc_index < 0 ) return(0)  // guard against bad initialization and test cases
+        //
+        this.lock_asset()
+        let evict_list = shm.run_lru_targeted_eviction_get_values(this.lru_key,cutoff,max_evict,hash,index)
+        this.unlock_asset()
+
+        return evict_list
+    }
+
+
     // ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
 
     disconnect(opt) {

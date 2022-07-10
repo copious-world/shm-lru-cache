@@ -162,6 +162,7 @@ class ShmLRUCache extends ReaderWriter {
         //
         this.eviction_interval = null
         this._use_immediate_eviction = false
+        this.hop_scotch_scale = conf.hop_scotch_scale ? parseInt(conf.hop_scotch_scale) : 2
         //
         if ( typeof conf._test_use_no_memory === "undefined" ) {
             this.init_shm_communicator(conf)
@@ -225,10 +226,11 @@ class ShmLRUCache extends ReaderWriter {
             this.lru_key = this.lru_buffer.key
             this.count = shm.initLRU(this.lru_key,this.record_size,sz,true)
             //
-            sz = (2*this.count*(WORD_SIZE + LONG_WORD_SIZE) + HH_HEADER_SIZE)
+            let hss = this.hop_scotch_scale
+            sz = (hss*this.count*(WORD_SIZE + LONG_WORD_SIZE) + HH_HEADER_SIZE)
             this.hh_bufer = shm.create(sz); 
             this.hh_key = this.hh_bufer.key
-            shm.initHopScotch(this.hh_key,this.lru_key,true,this.count)
+            shm.initHopScotch(this.hh_key,this.lru_key,true,(this.count*hss))
             //
             let p_offset = SUPER_HEADER  // even is the initializer is not at 0, all procs can read from zero
             this.com_buffer[p_offset + INFO_INDEX_LRU] = this.lru_key
@@ -242,11 +244,12 @@ class ShmLRUCache extends ReaderWriter {
             this.lru_key = this.com_buffer[p_offset + INFO_INDEX_LRU]
             this.hh_key = this.com_buffer[p_offset + INFO_INDEX_HH]
             //
+            let hss = this.hop_scotch_scale
             this.lru_buffer = shm.get(this.lru_key); //
             let sz = this.count*(this.record_size + LRU_HEADER)
             this.count = shm.initLRU(this.lru_key,this.record_size,sz,false)
             this.hh_bufer = shm.get(this.hh_key);
-            shm.initHopScotch(this.hh_key,this.lru_key,false,this.count)
+            shm.initHopScotch(this.hh_key,this.lru_key,false,(this.count*hss))
             //
         }
     }

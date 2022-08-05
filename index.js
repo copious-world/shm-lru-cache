@@ -254,13 +254,11 @@ class ShmLRUCache extends ReaderWriter {
 
     hash(value) {
         let hh = this.hasher(value)
-        let top = hh % this.count
-        let augmented_hash_token = top + '-' + hh
-        return( augmented_hash_token )
+        return( this.augment_hash(hh) )
     }
 
     // ----
-    pure_hash(key) {
+    pure_hash(value) {
         let hh = this.hasher(value)
         return hh
     }

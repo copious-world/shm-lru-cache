@@ -2,7 +2,7 @@
 
 A cache object that deletes the least-recently-used items.
 
-[![Build Status](https://travis-ci.org/copious.world/shm-lru-cache.svg?branch=master)](https://travis-ci.org/copious.world/shm-lru-cache) [![Coverage Status](https://coveralls.io/repos/copious.world/shm-lru-cache/badge.svg?service=github)](https://coveralls.io/github/copious.world/shm-lru-cache)
+[![Coverage Status](https://coveralls.io/repos/copious.world/shm-lru-cache/badge.svg?service=github)](https://coveralls.io/github/copious-world/shm-lru-cache)
 
 ## Installation:
 
@@ -13,86 +13,136 @@ npm install shm-lru-cache --save
 ## Usage:
 
 ```javascript
-// node.js exposition
+
+In general a cache will be created for some object using it.
+
+Here is one that creates a section of memory for the LRU:
+
+this.cache = new LRU({
+    "token_path" : "./ml_relay.conf",
+    "am_initializer" : true,
+    "seed" : 95982749,
+    "record_size" : 384,
+    "el_count" : 20000,
+    "stop_child" : true
+})
+
+Here is one that attaches to a section that has already been created:
+
+this.cache = new LRU({
+    "token_path" : "./ml_relay.conf",
+    "am_initializer" : false,
+    "seed" : 95982749,		// same seed
+    "record_size" : 384,	// same
+    "el_count" : 20000,		// same
+    "stop_child" : true
+})
+
+
 ```
 
+
+In the following a library is making use of the created cache:
+
+```
+    // ----
+    check_hash(hh_unid,value) {
+      let sdata = ( typeof value !== 'string' ) ? JSON.stringify(value) : value
+      let hh_unidentified = this.cache.hasher(sdata)
+      return hh_unidentified === hh_unid
+    }
+    
+    // ----
+    delete(key) { // token must have been returned by set () -> augmented_hash_token
+      let augmented_hash_token = this.cache.hash(key)
+      this.cache.del(augmented_hash_token)
+    }
+
+    // ----
+    async get(key) {    // token must have been returned by set () -> augmented_hash_token
+      let augmented_hash_token = this.cache.hash(key)
+      let value = await this.cache.get(augmented_hash_token)
+      if ( typeof value !== 'string' ) {
+        return false
+      }
+      return value
+    }
+
+    // ----
+    async get_with_token(token) {
+        let value = await this.cache.get(token)
+        if ( typeof value !== 'string' ) {
+          return false
+        }
+        return value  
+    }
+
+    // ----
+    run_evictions(time_shift,reduced_max) {  // one process will run this 
+      let evict_list = this.cache.immediate_mapped_evictions(time_shift,reduced_max)
+      return evict_list
+    }
+    
+    //  ...
+
+    // ----
+    disconnect(opt) {
+      if ( this.ev_interval ) {
+        clearInterval(this.ev_interval)
+        this.ev_interval = false
+      }
+      this.in_operation = false
+      return this.cache.disconnect(opt)
+    }
+```
 
 
 ## Options
 
-* `max` The maximum size of the cache, checked by applying the length
-  function to all values in the cache.  Not setting this is kind of
-  silly, since that's the whole purpose of this lib, but it defaults
-  to `Infinity`.
-* `maxAge` Maximum age in ms.  Items are not pro-actively pruned out
-  as they age, but if you try to get an item that is too old, it'll
-  drop it and return undefined instead of giving it to you.
-* `record_size` 
+* `am_initializer`  : whether or not this is a creator.
+* `max_evictions` : 
+* `el_count`		: number of elements that will be stored in the cache
+* `token_path` : a path to an actual file on disk. The path name is used to create a token for the memory region.
+* `record_size` : the size of an element
+* `seed` : this is the seed for the hash function.
+* `sessions_length` : 
+* `aged_out_secs` : 
+* 
 
 
 ## API
 
-* `set(key, value, maxAge)`
-* `get(key) => value`
+* `hash(value)`  : returns an augmented hash, includes and index,hyphen,pure hash
+* `pure_hash(value)`	: returns a hash of the value returned by the default hasher (which may be an xxhash)
+* `augment_hash(hash)` : given a pure hash, return the augmented version
+
+* `async set(hash_augmented,value)`  : put the value into the LRU
+* `async get(hash_augmented) => value` : retrieve the value
 
     Both of these will update the "recently used"-ness of the key.
-    They do what you think. `maxAge` is optional and overrides the
-    cache `maxAge` option if provided.
+    They do what you think.
 
-    If the key is not found, `get()` will return `undefined`.
+    If the key is not found, `get()` will return `false`.
 
     The key and val can be any value.
 
-* `peek(key)`
-
-    Returns the key value (or `undefined` if not found) without
-    updating the "recently used"-ness of the key.
-
-    (If you find yourself using this a lot, you *might* be using the
-    wrong sort of data structure, but there are some use cases where
-    it's handy.)
-
-* `del(key)`
+* `async del(hash_augmented)` also `async delete(hash_augmented)`
 
     Deletes a key out of the cache.
 
-* `reset()`
+The following methods have to do with removing old keys from the LRU:
 
-    Clear the cache entirely, throwing away all values.
+* `immediate_evictions(age_reduction,e_max)`  : Returns an array of keys that were removed. 
 
-* `has(key)`
+For the next two, the map of pure hashes to values can be passed upstream to other LRUs. These methods return the map. 
 
-    Check if a key is in the cache, without updating the recent-ness
-    or deleting it for being stale.
+* `immediate_mapped_evictions(age_reduction,e_max)` : Returns a map of keys to values
 
-* `keys()`
+* `immediate_targeted_evictions(hash_augmented,age_reduction,e_max)`  Returns a map of keys to values. The evictions are mostly from the bucket related to the hash parameter.
 
-    Return an array of the keys in the cache.
 
-* `values()`
+* `disconnect(opt)` : Cleans up the library assets when shutting down. 
 
-    Return an array of the values in the cache.
+* `app_handle_evicted(evict_list)` : If a descendant is written, this will be passed a list of hashes. Use by immediate\_evictions.
 
-* `length`
 
-    Return total length of objects in cache taking into account
-    `length` options function.
-
-* `itemCount`
-
-    Return total quantity of objects currently in cache. Note, that
-    `stale` (see options) items are returned as part of this item
-    count.
-
-* `dump()`
-
-    Return an array of the cache entries ready for serialization and usage
-    with 'destinationCache.load(arr)`.
-
-* `load(cacheEntriesArray)`
-
-	this is a test
-
-* `prune()`
-
-    Manually iterates over the entire cache proactively pruning old entries

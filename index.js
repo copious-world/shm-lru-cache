@@ -1,8 +1,8 @@
 const shm = require('shm-typed-lru')
-const { XXHash32 } = require('xxhash-addon')
+const { XXHash32 } = require('xxhash32-node-cmake')
 const ftok = require('ftok')
 
-
+//
 const MAX_EVICTS = 10
 const MIN_DELTA = 1000*60*60   // millisecs
 const MAX_FAUX_HASH = 100000
@@ -39,10 +39,7 @@ function default_hash(data) {
             let buf = g_buf_enc.encode(data)
             data = buf
         }
-        g_hasher32.update(data)
-        let h = g_hasher32.digest()
-        let hh = h.readUInt32BE(0)
-        g_hasher32.reset()
+        let hh = g_hasher32.hash(data)
         return hh            
     } catch (e) {
         console.log(e)
@@ -56,7 +53,6 @@ function init_default(seed) {
     g_hasher32 = new XXHash32(g_app_seed);
     return default_hash
 }
-
 
 
 
@@ -263,6 +259,21 @@ class ShmLRUCache extends ReaderWriter {
         return( augmented_hash_token )
     }
 
+    // ----
+    pure_hash(key) {
+        let hh = this.hasher(value)
+        return hh
+    }
+
+    // ----
+    augment_hash(hash) {
+        let hh = hash
+        let top = hh % this.count
+        let augmented_hash_token = top + '-' + hh
+        return( augmented_hash_token )
+    }
+  
+    // ----
     async set(hash_augmented,value) {
         if ( typeof value === 'string' ) {
             if ( !(value.length) ) return(-1)

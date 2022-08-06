@@ -1,4 +1,4 @@
-const { XXHash32 } = require('xxhash-addon')
+const { XXHash32 } = require('xxhash32-node-cmake')
 
 
 var g_app_seed = 0
@@ -8,12 +8,13 @@ var g_hasher32 = null
 
 function default_hash(data) {
     if ( !(g_hasher32) ) return(0)
-    g_hasher32.update(data)
-    let h = g_hasher32.digest()
-    let hh = h.readUInt32BE(0)
-    g_hasher32.reset()
-    //
-    return hh
+    try {
+        let hh = g_hasher32.hash(data)
+        return hh            
+    } catch (e) {
+        console.log(e)
+    }
+    return 0
 }
 
 

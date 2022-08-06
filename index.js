@@ -30,15 +30,10 @@ const LRU_HEADER = 64
 var g_app_seed = 0
 var g_hasher32 = null
 
-var g_buf_enc = new TextEncoder()
 
 function default_hash(data) {
     if ( !(g_hasher32) ) return(0)
     try {
-        if ( typeof data === "string" ) {
-            let buf = g_buf_enc.encode(data)
-            data = buf
-        }
         let hh = g_hasher32.hash(data)
         return hh            
     } catch (e) {

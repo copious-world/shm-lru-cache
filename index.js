@@ -154,6 +154,7 @@ class ShmLRUCache extends ReaderWriter {
         this.eviction_interval = null
         this._use_immediate_eviction = false
         this.hop_scotch_scale = conf.hop_scotch_scale ? parseInt(conf.hop_scotch_scale) : 2
+        this._max_evicts = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : false
         //
         if ( typeof conf._test_use_no_memory === "undefined" ) {
             this.init_shm_communicator(conf)
@@ -226,6 +227,7 @@ class ShmLRUCache extends ReaderWriter {
             let p_offset = SUPER_HEADER  // even is the initializer is not at 0, all procs can read from zero
             this.com_buffer[p_offset + INFO_INDEX_LRU] = this.lru_key
             this.com_buffer[p_offset + INFO_INDEX_HH] = this.hh_key
+            // Eviction -- only the process that manages memory can setup periodic eviction.
             if ( conf.evictions_timeout ) {
                 this.setup_eviction_proc(conf)
             }
@@ -334,7 +336,7 @@ class ShmLRUCache extends ReaderWriter {
         let eviction_timeout = (conf.sessions_length !== undefined) ? conf.sessions_length : DEFAULT_RESIDENCY_TIMEOUT
         let prev_milisec = (conf.aged_out_secs !== undefined) ? (conf.aged_out_secs*1000) : DEFAULT_RESIDENCY_TIMEOUT
         let cutoff = Date.now() - prev_milisec
-        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
+        let max_evict = (this._max_evicts !== false) ? this._max_evicts : MAX_EVICTS
         let self = this
         if ( this.proc_index < 0 ) return(false)  // guard against bad initialization and test cases
         this.eviction_interval = setInterval(() => {
@@ -353,11 +355,12 @@ class ShmLRUCache extends ReaderWriter {
             prev_milisec = age_reduction
         }
         let cutoff = Date.now() - prev_milisec
-        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
-        if ( (e_max !== undefined) && (e_max < max_evict) ) {
+        let max_evict = (this._max_evicts !== false) ? this._max_evicts : MAX_EVICTS
+        if ( (e_max !== undefined) && (e_max < max_evict) ) {  // upper limit on the calling value
             max_evict = e_max
         }
-        if ( this.proc_index < 0 ) return(0)  // guard against bad initialization and test cases
+        if ( max_evict <= 0 ) return([0,0])
+        if ( this.proc_index < 0 ) return([0,0])  // guard against bad initialization and test cases
         //
         let evict_list = shm.run_lru_eviction(this.lru_key,cutoff,max_evict)
         if ( evict_list.length ) {
@@ -366,6 +369,7 @@ class ShmLRUCache extends ReaderWriter {
                 self.app_handle_evicted(evict_list)
             },250)    
         }
+        //
         return [(prev_milisec - 100),(max_evict - 2)]
     }
 
@@ -377,16 +381,17 @@ class ShmLRUCache extends ReaderWriter {
             prev_milisec = age_reduction
         }
         let cutoff = Date.now() - prev_milisec
-        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
-        if ( (e_max !== undefined) && (e_max < max_evict) ) {
+        let max_evict = (this._max_evicts !== false) ? this._max_evicts : MAX_EVICTS
+        if ( (e_max !== undefined) && (e_max < max_evict) ) {  // upper limit on the calling value
             max_evict = e_max
         }
-        if ( this.proc_index < 0 ) return(0)  // guard against bad initialization and test cases
+        if ( max_evict <= 0 ) return([0,0])
+        if ( this.proc_index < 0 ) return([0,0])  // guard against bad initialization and test cases
         //
         this.lock_asset()
         let evict_list = shm.run_lru_eviction_get_values(this.lru_key,cutoff,max_evict)
         this.unlock_asset()
-
+        //
         return evict_list
     }
 
@@ -403,16 +408,17 @@ class ShmLRUCache extends ReaderWriter {
             prev_milisec = age_reduction
         }
         let cutoff = Date.now() - prev_milisec
-        let max_evict = (conf.max_evictions !== undefined) ? parseInt(conf.max_evictions) : MAX_EVICTS
-        if ( (e_max !== undefined) && (e_max < max_evict) ) {
+        let max_evict = (this._max_evicts !== false) ? this._max_evicts : MAX_EVICTS
+        if ( (e_max !== undefined) && (e_max < max_evict) ) {  // upper limit on the calling value
             max_evict = e_max
         }
-        if ( this.proc_index < 0 ) return(0)  // guard against bad initialization and test cases
+        if ( max_evict <= 0 ) return([0,0])
+        if ( this.proc_index < 0 ) return([0,0])  // guard against bad initialization and test cases
         //
         this.lock_asset()
         let evict_list = shm.run_lru_targeted_eviction_get_values(this.lru_key,cutoff,max_evict,hash,index)
         this.unlock_asset()
-
+        //
         return evict_list
     }
 

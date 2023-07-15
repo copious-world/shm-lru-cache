@@ -1,6 +1,6 @@
 {
   "name": "shm-lru-cache",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "A shared memory cache. This is a wrapper for shm-typed-lru that provides a familiar cache interface.",
   "main": "index.js",
   "directories": {
@@ -17,7 +17,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "placeholder"
+    "url": "https://github.com/copious-world/shm-lru-cache"
+  },
+  "funding": {
+    "type" : "GitHub Sponsors",
+    "url" : "https://github.com/sponsors/copious-world"
   },
   "keywords": [
     "cache",

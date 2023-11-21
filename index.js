@@ -4,7 +4,7 @@ const ftok = require('ftok')
 
 //
 const MAX_EVICTS = 10
-const MIN_DELTA = 1000*60*60   // millisecs
+const MIN_DELTA = 1000*60*60   // millisecs  one hour
 const MAX_FAUX_HASH = 100000
 const INTER_PROC_DESCRIPTOR_WORDS = 8
 const DEFAULT_RESIDENCY_TIMEOUT = MIN_DELTA
@@ -60,6 +60,21 @@ function init_default(seed) {
  * In this module, the ReaderWriter represents on mutex fo lock operations, used to protect 
  * data structure changes on one HopScotch table comprising two shared memory sections, the 
  * storage region and the hash table.
+ * 
+ * This class initializes the com buffer (communication buffer) to false. 
+ * The lock methods will only work if the com buffer is intialized.
+ * 
+ * The com buffer will store a share mutex. Also, it will store a tabe of values used by each process to communicate to 
+ * other processes sharing the table their state. 
+ * 
+ * * PID_INDEX - the process id
+ * * WRITE_FLAG_INDEX - states that the process is writing
+ * * INFO_INDEX_LRU - TBD
+ * * INFO_INDEX_HH - TBD
+ * 
+ * These fields are set aside for extensions of the classes in this module that might manage communication with the table,
+ * using values other than the mutex.
+ * 
  */
 class ReaderWriter {
 
@@ -77,23 +92,40 @@ class ReaderWriter {
         }
         //
         this.asset_lock = false
-        this.com_buffer = []
+        this.com_buffer = false
         this.nprocs = 0
         this.proc_index = -1
         this.pid = process.pid
         this.resolver = null
     }
     
-    // ---- ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+    /**
+     * If `try_lock` fails to acquire a lock, it calls this method.
+     * 
+     * This method uses the node.js event queue to schedule another attempt at getting the lock, 
+     * sequentializing the attempts. 
+     * 
+     * As far as the local process is concerned, it will tarry for a tick before trying the lock again.
+     * Each attempt (dequeued) will decrement the count and try again. If the count falls below zero, 
+     * this method calls the promise's `reject` function. It also calls the `reject` function if the try lock
+     * fails for reasons other than EBUSY. 
+     * 
+     * If the lock can be acquired, this method alls the promise's `resolve` function.
+     * 
+     * @param {Function} resolve 
+     * @param {Function} reject 
+     * @param {Number} count 
+     */
     try_again(resolve,reject,count) {
-        count++
+        count--
+        if ( count < 0 ) reject(-1)
         // try again at least once before stalling on a lock
         setImmediate(() => { 
             let result = shm.try_lock(this.shm_com_key)
             if ( result === true ) {
                 resolve(true)
             } else if ( result === false ) {
-                if ( count < MAX_LOCK_ATTEMPTS ) {
+                if ( count >= 0 ) {
                     this.try_again(resolve,count)  // keep in mind that this not actually recursive
                 }
             } else {
@@ -110,6 +142,9 @@ class ReaderWriter {
      * 
      * On failure to lock, this method will relinquish the attemp to lock on the asset to the event queue
      * by calling `try_again`.
+     * 
+     * @param {Number} count - the number of times the lock might be attempted before reconining a failure to lock
+     * @returns {Promise}
      */
     async access(count) {
         if ( count === undefined ) count = 0
@@ -124,29 +159,49 @@ class ReaderWriter {
                 } else if ( result === false ) {
                     await this.try_again(resolve,reject,count)
                 } else {
-                    reject(result)
+                    reject(result)  // throws exception
                 }    
             }
         })
     }
 
+    /**
+     * An alias for `lock_asset_access`
+     * @param {Number} count - the number of times the lock might be attempted before reconining a failure to lock
+     * @returns {Promise}
+     */
     async lock_asset_access(count) {
         return await this.access(count)
     }
 
+    /**
+     * this method calls the POSIX mutex lock method via the shm-typed-lru methods
+     * this method will print an error if the lock cannot be acquired. 
+     * A value other than **true** means that the lock mechanism has failed, since otherwise this method blocks
+     * and eventually returns true.
+     * 
+     * This method returns no value. Instead, the `asset_lock` field is set to true
+     */
     lock_asset() {
-        if ( this.proc_index >= 0 && this.com_buffer.length ) {
+        if ( this.proc_index >= 0 && this.com_buffer && this.com_buffer.length ) {
             if ( this.asset_lock ) return; // it is already locked
-            //
             let result = shm.lock(this.shm_com_key)
             if ( result !== true ) {
                 console.log(shm.get_last_mutex_reason(this.shm_com_key))
+            } else {
+                this.asset_lock = true    // avoid calling the POSIX methods until this is clear
             }
         }
     }
 
+    /**
+     * this method calls the POSIX mutex unlock method via the shm-typed-lru methods
+     * this method will print an error if the lock cannot be released.
+     * 
+     * This method returns no value. Instead, the `asset_lock` field is set to false
+     */
     unlock_asset() {
-        if ( this.proc_index >= 0 && this.com_buffer.length ) {
+        if ( this.proc_index >= 0 && this.com_buffer && this.com_buffer.length ) {
             let result = shm.unlock(this.shm_com_key)
             if ( result !== true ) {
                 console.log(shm.get_last_mutex_reason(this.shm_com_key))
@@ -269,8 +324,13 @@ class ShmLRUCache extends ReaderWriter {
     }
 
 
-    // ----
     /**
+     * Depending on whether or not the process being configured is the initializer this method will 
+     * either create shared memory regions for operation or it will attach to them.
+     * 
+     * In both cases, the calls to `initHopScotch` and `initLRU` are made on the hash table buffer. The reason is that the 
+     * process will retain some local data structure describing the hash table and the LRU memory management. The local structures
+     * allow the processes to participate in the updates, but actual data structures are available to all the sharing processes.
      * 
      * @param {object} conf 
      */
@@ -332,7 +392,6 @@ class ShmLRUCache extends ReaderWriter {
         return hh
     }
 
-    // ----
     /**
      * 
      * The application determines the key, which should be a numeric hash of the value. 
@@ -372,7 +431,6 @@ class ShmLRUCache extends ReaderWriter {
         return( [top,hh] )
     }
   
-    // ----
     /**
      * 
      * @param {string|Array} hash_augmented - hyphentated string or a pair
@@ -498,8 +556,16 @@ class ShmLRUCache extends ReaderWriter {
      * Called from within the `set` method.  This will run evictions and return a list of evicted values.
      * The timeout is applied to an application method given to an exention of this class. 
      * 
-     * @param {*} age_reduction 
-     * @param {*} e_max 
+     * The number of evictions must be less than the max allowed evictions, set by configuration or by default. If it is larger,
+     * it will limited to the max eviction. The number of evictions may be reduced by 2 each all if this is called in a loop 
+     * with feedback of the parameters from the outputs.
+     * 
+     * The time frame (interval of acceptance) will be shaved off by 100 milisections (one tenth) each call, where it may be
+     * that the window starts at one hour by default or otherwise set by configuration.
+     * 
+     * 
+     * @param {Number} age_reduction - how far back in time to allow eviction or the lower limit of what shall be kept.
+     * @param {Number} e_max - the number of elements to evict
      * @returns 
      */
     immediate_evictions(age_reduction,e_max) {
